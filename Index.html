@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0e0e10">
+<title>Cleaning Photo Check</title>
+<style>
+:root{--bg:#f5f4f0;--card:#fff;--ink:#1c1c1e;--muted:#6b6b70;--line:#e2e0da;--accent:#1f6f5c;--danger:#b3261e;--warn:#d39b00;--ok:#2f9e63;--dark:#0e0e10;--bar:#19191c}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:var(--dark);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);touch-action:manipulation;overscroll-behavior:none}
+button{font:inherit;cursor:pointer}
+button:disabled{cursor:default}
+.screen{position:fixed;inset:0;display:none;flex-direction:column}
+.screen.on{display:flex}
+.light{background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px;padding-top:max(16px,env(safe-area-inset-top));padding-bottom:max(24px,env(safe-area-inset-bottom))}
+.dark{background:var(--dark);color:#fff}
+.wrap{width:100%;max-width:520px;margin:0 auto}
+.center{margin:auto;width:100%;max-width:420px}
+h1{font-size:27px;line-height:1.15;margin:0 0 6px;letter-spacing:-.01em}
+h2{font-size:21px;margin:6px 0 4px}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+label{display:block;font-weight:600;margin:22px 0 6px}
+.text{width:100%;font-size:18px;padding:14px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);outline:none}
+.text:focus{border-color:var(--accent)}
+.primary{display:block;width:100%;font-size:17px;padding:14px;border:0;border-radius:12px;background:var(--accent);color:#fff;font-weight:600;margin-top:14px}
+.primary:disabled{opacity:.4}
+.ghost{background:none;border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:8px 12px;font-size:14px}
+.topbar{display:flex;justify-content:space-between;align-items:center;min-height:40px;margin-bottom:6px}
+.link{background:none;border:0;color:var(--accent);font-size:16px;padding:8px 0;font-weight:600}
+.gear{background:none;border:0;padding:8px;color:var(--muted);width:40px;height:40px;display:grid;place-items:center}
+.gear svg{width:22px;height:22px}
+.abs-gear{position:absolute;top:max(10px,env(safe-area-inset-top));right:10px}
+.unitBtn{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink);font-size:17px;margin-bottom:10px;text-align:left}
+.unitBtn small{color:var(--muted);font-size:13px;white-space:nowrap}
+.unitBtn:disabled{opacity:.5}
+.pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:10px;background:#fff3cd;color:#7a5a00;margin-left:6px}
+
+/* ----- split screens ----- */
+.half{position:relative;flex:1 1 0;min-height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#000}
+.camBox{position:relative;overflow:hidden;background:#111;width:100%;height:100%}
+.camBox video,.camBox img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.camBox img{object-fit:contain;background:#000}
+.bar{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--bar);border-top:1px solid #2b2b30;border-bottom:1px solid #2b2b30}
+.nav{width:42px;height:38px;border:0;border-radius:10px;background:#2a2a2f;color:#fff;display:grid;place-items:center;padding:0}
+.nav svg{width:20px;height:20px}
+.nav:disabled{opacity:.3}
+.mid{flex:1;min-width:0;text-align:center}
+.counter{font-size:14px;font-weight:600}
+.dots{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;margin-top:4px}
+.dot{width:8px;height:8px;border-radius:50%;background:#55555c;border:0;padding:0;position:relative}
+.dot::after{content:"";position:absolute;inset:-4px}
+.dot.up{background:var(--warn)}.dot.done{background:var(--ok)}.dot.err{background:var(--danger)}
+.dot.cur{outline:2px solid #fff;outline-offset:1px}
+.complete{height:38px;padding:0 14px;border:0;border-radius:10px;background:var(--ok);color:#fff;font-weight:700;font-size:15px}
+.complete:disabled{background:#2a2a2f;color:#77777d}
+.menuBtn{height:38px;padding:0 14px;border:0;border-radius:10px;background:#2a2a2f;color:#fff;font-weight:600;font-size:15px}
+
+/* very small buttons (bigger invisible tap area so they are still easy to hit) */
+.tiny{position:absolute;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;padding:0;display:grid;place-items:center;z-index:6}
+.tiny::after{content:"";position:absolute;inset:-9px}
+.tiny svg{width:13px;height:13px}
+.tiny.tr{top:8px;right:8px}
+.tiny.tl{top:8px;left:8px}
+.tiny.ok{background:var(--ok)}
+.tinyRow{position:absolute;left:0;right:0;bottom:12px;display:flex;justify-content:center;gap:26px;z-index:6}
+.tinyRow .tiny{position:relative}
+.shutter{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);width:58px;height:58px;border-radius:50%;border:4px solid #fff;background:rgba(255,255,255,.25);z-index:6;padding:0}
+.shutter:active{background:rgba(255,255,255,.7)}
+.tag{position:absolute;top:8px;right:8px;font-size:12px;padding:4px 9px;border-radius:12px;background:rgba(0,0,0,.6);z-index:6;border:0;color:#fff}
+.tag.up{background:rgba(211,155,0,.9)}.tag.done{background:rgba(47,158,99,.92)}.tag.err{background:rgba(179,38,30,.95)}
+.label{position:absolute;left:8px;top:8px;font-size:12px;padding:4px 9px;border-radius:12px;background:rgba(0,0,0,.6);z-index:5;max-width:calc(100% - 60px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl + .label{left:44px}
+.fallback{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:20px;z-index:4;background:#111}
+.fallback p{margin:0;color:#aaa;font-size:13px;max-width:280px}
+.bigBtn{padding:14px 22px;border-radius:30px;border:0;background:#fff;color:#111;font-weight:700;font-size:17px;display:flex;gap:8px;align-items:center}
+.bigBtn svg{width:20px;height:20px}
+.empty{color:#888;font-size:14px;padding:20px;text-align:center}
+.loading{position:absolute;inset:0;display:grid;place-items:center;color:#777;font-size:13px;pointer-events:none}
+
+/* zoomable panes */
+.zoomable img{width:100%;height:100%;object-fit:contain;transform-origin:50% 50%;user-select:none;-webkit-user-select:none;-webkit-user-drag:none;pointer-events:none}
+.zoomable.full{position:fixed;inset:0;z-index:60;flex:none;touch-action:none}
+.zoomable.full .tiny.tr{top:max(10px,env(safe-area-inset-top));right:10px}
+
+/* admin */
+.unitBlock{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:12px}
+.unitHead{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.unitHead b{font-size:17px}
+.indent{list-style:none;margin:8px 0 0;padding:0 0 0 18px;border-left:2px solid var(--line)}
+.indent li{margin:2px 0}
+.indent button{background:none;border:0;padding:8px 6px;text-align:left;width:100%;color:var(--ink);font-size:15px;border-radius:8px}
+.indent button:active{background:#eef3f1}
+.indent .when{color:var(--muted);font-size:13px;display:block}
+.refItem{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px;margin-bottom:8px}
+.refItem .thumb{width:84px;height:84px;border-radius:8px;background:#ddd;object-fit:cover;flex:none}
+.refItem .num{font-weight:700;width:26px;text-align:center}
+.refActs{display:flex;flex-wrap:wrap;gap:6px;flex:1;justify-content:flex-end}
+.refActs button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 10px;font-size:13px;color:var(--ink)}
+.refActs .del{color:var(--danger)}
+.note{background:#fff8e6;border:1px solid #f1dfae;color:#6b5100;border-radius:12px;padding:10px 12px;font-size:13px;margin:10px 0}
+
+/* overlays */
+#toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;z-index:100;max-width:90%;text-align:center;opacity:0;pointer-events:none;transition:opacity .2s}
+#toast.on{opacity:1}
+#busy{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:90}
+#busy.on{display:flex}
+#busy div{background:#fff;color:#222;padding:16px 20px;border-radius:14px;font-size:15px;display:flex;gap:10px;align-items:center}
+.spin{width:18px;height:18px;border:3px solid #ccc;border-top-color:var(--accent);border-radius:50%;animation:sp 0.8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:95;padding:20px}
+#modal.on{display:flex}
+#modal .box{background:#fff;color:#222;border-radius:16px;padding:18px;width:100%;max-width:340px}
+#modal .msg{font-size:16px;line-height:1.4;margin-bottom:12px}
+#modal .row{display:flex;gap:10px;margin-top:12px}
+#modal .row button{flex:1;padding:12px;border-radius:10px;border:0;font-weight:600;font-size:16px}
+#modal .cancel{background:#eee;color:#222}
+#modal .okb{background:var(--accent);color:#fff}
+#modal .okb.danger{background:var(--danger)}
+</style>
+</head>
+<body>
+
+<!-- 1. NAME -->
+<section id="s-name" class="screen light">
+  <button class="gear abs-gear" data-admin aria-label="Settings"></button>
+  <div class="center">
+    <h1>Cleaning Photo Check</h1>
+    <div class="muted" id="todayText"></div>
+    <label for="nameInput">Your name</label>
+    <input id="nameInput" class="text" autocomplete="name" autocapitalize="words" placeholder="First and last name" maxlength="40">
+    <button class="primary" id="nameNext" disabled>Next</button>
+  </div>
+</section>
+
+<!-- 2. UNIT MENU -->
+<section id="s-units" class="screen light">
+  <div class="wrap">
+    <div class="topbar"><button class="link" id="unitsBack">‹ Change name</button><button class="gear" data-admin aria-label="Settings"></button></div>
+    <h2 id="hello"></h2>
+    <p class="muted" style="margin-top:0">Which unit are you photographing?</p>
+    <div id="unitList"></div>
+  </div>
+</section>
+
+<!-- 3. SHOOT: camera on top, reference on bottom -->
+<section id="s-shoot" class="screen dark">
+  <div class="half" id="topPane">
+    <div class="camBox" id="camBox">
+      <video id="video" playsinline muted autoplay></video>
+      <img id="shotImg" alt="" hidden>
+      <div class="fallback" id="camFallback" hidden>
+        <button class="bigBtn" id="openCam"></button>
+        <p>Line your shot up with the reference photo below, then take it.</p>
+      </div>
+    </div>
+    <button class="tiny tl" id="exitShoot" aria-label="Exit"></button>
+    <button class="tag" id="shotStatus" hidden></button>
+    <button class="shutter" id="shutter" aria-label="Take photo" hidden></button>
+    <div class="tinyRow" id="reviewBtns" hidden>
+      <button class="tiny ok" id="acceptBtn" aria-label="Accept photo"></button>
+      <button class="tiny" id="retakeBtn" aria-label="Retake photo"></button>
+    </div>
+  </div>
+  <div class="bar">
+    <button class="nav" id="prevBtn" aria-label="Previous"></button>
+    <div class="mid"><div class="counter" id="counter"></div><div class="dots" id="dots"></div></div>
+    <button class="nav" id="nextBtn" aria-label="Next"></button>
+    <button class="complete" id="completeBtn" disabled>Complete</button>
+  </div>
+  <div class="half zoomable" id="refPane">
+    <div class="loading" id="refLoading">Loading…</div>
+    <img id="refImg" alt="Reference photo">
+    <span class="label">Reference</span>
+    <button class="tiny tr" data-fs aria-label="Full screen"></button>
+  </div>
+</section>
+
+<!-- 4. DONE -->
+<section id="s-done" class="screen light">
+  <div class="center" style="text-align:center">
+    <div style="font-size:54px">✅</div>
+    <h1 id="doneTitle">All done!</h1>
+    <p class="muted" id="doneText"></p>
+    <button class="primary" id="doneBtn">Back to units</button>
+  </div>
+</section>
+
+<!-- 5. SETTINGS -->
+<section id="s-admin" class="screen light">
+  <div class="wrap">
+    <div class="topbar"><button class="link" id="adminExit">‹ Exit settings</button><button class="ghost" id="adminRefresh">Refresh</button></div>
+    <h2>Settings</h2>
+    <p class="muted small" style="margin-top:0">Tap a name to view that cleaning's photos.</p>
+    <div id="adminList"></div>
+  </div>
+</section>
+
+<!-- 6. VIEWER: cleaner photo on top, reference on bottom -->
+<section id="s-viewer" class="screen dark">
+  <div class="half zoomable" id="vTop">
+    <div class="loading" id="vTopLoading">Loading…</div>
+    <img id="vTopImg" alt="Cleaner photo">
+    <span class="label" id="vTopLabel"></span>
+    <button class="tiny tr" data-fs aria-label="Full screen"></button>
+  </div>
+  <div class="bar">
+    <button class="nav" id="vPrev" aria-label="Previous"></button>
+    <div class="mid"><div class="counter" id="vCounter"></div></div>
+    <button class="nav" id="vNext" aria-label="Next"></button>
+    <button class="menuBtn" id="vMenu">Main menu</button>
+  </div>
+  <div class="half zoomable" id="vBot">
+    <div class="loading" id="vBotLoading">Loading…</div>
+    <img id="vBotImg" alt="Reference photo">
+    <span class="label">Reference</span>
+    <button class="tiny tr" data-fs aria-label="Full screen"></button>
+  </div>
+</section>
+
+<!-- 7. REFERENCE PHOTO MANAGER -->
+<section id="s-refs" class="screen light">
+  <div class="wrap">
+    <div class="topbar"><button class="link" id="refsBack">‹ Settings</button></div>
+    <h2 id="refsTitle"></h2>
+    <p class="muted small" style="margin-top:0">Cleaners see these in this order. Take them with the phone held the way cleaners will hold it.</p>
+    <button class="primary" id="addRefs">+ Add reference photos</button>
+    <div class="note">Moving or deleting a photo moves/deletes that whole row in the sheet, so past cleanings stay matched. <b>Delete also removes cleaners' photos in that row.</b></div>
+    <div id="refList"></div>
+  </div>
+</section>
+
+<input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
+<input type="file" id="fileRefs" accept="image/*" multiple hidden>
+<input type="file" id="fileRefOne" accept="image/*" hidden>
+<div id="toast"></div>
+<div id="busy"><div><span class="spin"></span><span id="busyText">Working…</span></div></div>
+<div id="modal"><div class="box"><div class="msg" id="modalMsg"></div><input id="modalInput" class="text" type="password" inputmode="numeric" autocomplete="off" hidden><div class="row"><button class="cancel" id="modalCancel">Cancel</button><button class="okb" id="modalOk">OK</button></div></div></div>
+
+<script>
+/* ================================================================
+   SETTING: only needed if you host this file outside Google
+   (e.g. GitHub Pages, for the live camera). Paste your Apps Script
+   Web app URL between the quotes. Leave empty inside Apps Script.
+   ================================================================ */
+var API_URL = 'https://script.google.com/macros/s/AKfycbzpxROcq48DclAlfM_11-xsiH4Ti-uXF5oNU29Glnc_60Q9xVuYzc-DSEr3LhbvpE7Y/exec';
+
+(function () {
+'use strict';
+
+/* ---------- tiny helpers ---------- */
+var $ = function (id) { return document.getElementById(id); };
+var ICON = {
+  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>',
+  shrink: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  retake: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>',
+  close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  left: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
+  right: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
+  camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>'
+};
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+var store = {
+  get: function (k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+  set: function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  del: function (k) { try { localStorage.removeItem(k); } catch (e) {} }
+};
+var sess = {
+  get: function (k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } },
+  set: function (k, v) { try { sessionStorage.setItem(k, v); } catch (e) {} }
+};
+function todayKey() { var d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+function newSid() { return (Date.now().toString(36) + Math.random().toString(36).slice(2, 10)).slice(0, 20); }
+
+var toastTimer;
+function toast(msg) { var t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove('on'); }, 3500); }
+function busy(text) { if (text) { $('busyText').textContent = text; $('busy').classList.add('on'); } else $('busy').classList.remove('on'); }
+
+// Small custom dialog (works everywhere, including inside Google's frame)
+function ask(msg, opts) {
+  opts = opts || {};
+  return new Promise(function (resolve) {
+    $('modalMsg').textContent = msg;
+    var inp = $('modalInput');
+    inp.hidden = !opts.input; inp.value = '';
+    $('modalOk').textContent = opts.ok || 'OK';
+    $('modalOk').className = 'okb' + (opts.danger ? ' danger' : '');
+    $('modalCancel').textContent = opts.cancel || 'Cancel';
+    $('modal').classList.add('on');
+    if (opts.input) setTimeout(function () { inp.focus(); }, 50);
+    function done(val) { $('modal').classList.remove('on'); $('modalOk').onclick = $('modalCancel').onclick = inp.onkeydown = null; resolve(val); }
+    $('modalOk').onclick = function () { done(opts.input ? inp.value : true); };
+    $('modalCancel').onclick = function () { done(opts.input ? null : false); };
+    inp.onkeydown = function (e) { if (e.key === 'Enter') done(inp.value); };
+  });
+}
+
+/* ---------- talking to the Google Sheet ---------- */
+function api(action, params) {
+  var req = Object.assign({ action: action }, params || {});
+  if (action.indexOf('admin') === 0 && req.pass == null) req.pass = S.pass;
+  var handle = function (r) { if (!r || !r.ok) throw new Error((r && r.error) || 'No response from the sheet'); return r.data; };
+  if (window.__mockApi) return window.__mockApi(req).then(handle);
+  if (window.google && google.script && google.script.run) {
+    return new Promise(function (res, rej) {
+      google.script.run.withSuccessHandler(res).withFailureHandler(function (e) { rej(new Error((e && e.message) || 'Connection problem')); }).apiRun(req);
+    }).then(handle);
+  }
+  if (!API_URL) return Promise.reject(new Error('This page is not connected yet (API_URL is empty).'));
+  return fetch(API_URL, { method: 'POST', body: JSON.stringify(req) })
+    .then(function (r) { return r.json(); }, function () { throw new Error('Could not reach the photo storage'); })
+    .then(handle);
+}
+function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+// Photos load a few at a time and retry on their own, so a slow start or weak signal doesn't fail them.
+var imgCache = {}, imgQueue = [], imgActive = 0;
+function pumpImages() {
+  while (imgActive < 3 && imgQueue.length) {
+    var job = imgQueue.shift(); imgActive++;
+    (function (job) {
+      var attempt = function (n) {
+        return api('image', { id: job.id }).catch(function (e) {
+          if (n >= 3 || /not available|Bad photo/.test(e.message)) throw e;
+          return wait(1500 * n).then(function () { return attempt(n + 1); });
+        });
+      };
+      attempt(1).then(job.res, job.rej).then(function () { imgActive--; pumpImages(); });
+    })(job);
+  }
+}
+function loadImage(id, urgent) {
+  if (!imgCache[id]) {
+    imgCache[id] = new Promise(function (res, rej) {
+      imgQueue[urgent ? 'unshift' : 'push']({ id: id, res: res, rej: rej }); pumpImages();
+    }).catch(function (e) { delete imgCache[id]; throw e; });
+  }
+  return imgCache[id];
+}
+
+/* ---------- image helpers ---------- */
+function fileToDataUrl(file, maxSide) {
+  maxSide = maxSide || 1600;
+  return new Promise(function (res, rej) {
+    var url = URL.createObjectURL(file), img = new Image();
+    img.onload = function () {
+      var k = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+      var c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      res(c.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); rej(new Error('Could not read that photo')); };
+    img.src = url;
+  });
+}
+
+/* ---------- full screen + pinch zoom ---------- */
+function makeZoomable(pane) {
+  var img = pane.querySelector('img');
+  var s = 1, tx = 0, ty = 0, g = null, lastTap = 0, pts = {};
+  function list() { return Object.keys(pts).map(function (k) { return pts[k]; }); }
+  function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y) || 1; }
+  function mid(a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
+  function local(e) { var r = pane.getBoundingClientRect(); return { x: e.clientX - r.left - r.width / 2, y: e.clientY - r.top - r.height / 2 }; }
+  function apply() { img.style.transform = s === 1 ? '' : 'translate(' + tx + 'px,' + ty + 'px) scale(' + s + ')'; }
+  function clamp() {
+    if (s <= 1.001) { s = 1; tx = ty = 0; return; }
+    var mx = (s - 1) * pane.clientWidth / 2, my = (s - 1) * pane.clientHeight / 2;
+    tx = Math.max(-mx, Math.min(mx, tx)); ty = Math.max(-my, Math.min(my, ty));
+  }
+  function zoomAt(ns, p) { ns = Math.max(1, Math.min(6, ns)); tx = p.x - ns * (p.x - tx) / s; ty = p.y - ns * (p.y - ty) / s; s = ns; clamp(); apply(); }
+  function begin() {
+    var v = list();
+    if (v.length >= 2) g = { pinch: true, d: dist(v[0], v[1]), m: mid(v[0], v[1]), s: s, tx: tx, ty: ty };
+    else if (v.length === 1) g = { pinch: false, m: v[0], tx: tx, ty: ty };
+    else g = null;
+  }
+  pane.addEventListener('pointerdown', function (e) {
+    if (!pane.classList.contains('full') || e.target.closest('button')) return;
+    try { pane.setPointerCapture(e.pointerId); } catch (x) {}
+    pts[e.pointerId] = local(e);
+    if (list().length === 1) {
+      var now = Date.now();
+      if (now - lastTap < 300) { zoomAt(s > 1 ? 1 : 2.5, local(e)); lastTap = 0; } else lastTap = now;
+    }
+    begin();
+  });
+  pane.addEventListener('pointermove', function (e) {
+    if (!pts[e.pointerId] || !g) return;
+    pts[e.pointerId] = local(e);
+    var v = list();
+    if (g.pinch && v.length >= 2) {
+      var ns = Math.max(1, Math.min(6, g.s * dist(v[0], v[1]) / g.d)), m1 = mid(v[0], v[1]);
+      tx = m1.x - ns * (g.m.x - g.tx) / g.s; ty = m1.y - ns * (g.m.y - g.ty) / g.s; s = ns;
+    } else if (!g.pinch && s > 1) { tx = g.tx + v[0].x - g.m.x; ty = g.ty + v[0].y - g.m.y; }
+    clamp(); apply();
+  });
+  function end(e) { delete pts[e.pointerId]; begin(); }
+  pane.addEventListener('pointerup', end);
+  pane.addEventListener('pointercancel', end);
+  pane.addEventListener('wheel', function (e) { if (!pane.classList.contains('full')) return; e.preventDefault(); zoomAt(s * (e.deltaY < 0 ? 1.15 : 1 / 1.15), local(e)); }, { passive: false });
+  pane._reset = function () { s = 1; tx = ty = 0; pts = {}; g = null; apply(); };
+}
+function setFull(pane, on) {
+  pane.classList.toggle('full', on);
+  var b = pane.querySelector('[data-fs]');
+  if (b) { b.innerHTML = on ? ICON.shrink : ICON.expand; b.setAttribute('aria-label', on ? 'Back to half screen' : 'Full screen'); }
+  if (!on && pane._reset) pane._reset();
+}
+function exitAllFull() { document.querySelectorAll('.zoomable.full').forEach(function (p) { setFull(p, false); }); }
+
+/* ---------- screens ---------- */
+var S = { name: '', units: [], unit: '', sid: '', refs: [], photos: [], idx: 0, mode: 'live', pending: null, stream: null, liveCam: false, pass: sess.get('ccp_pass') || '' };
+function show(id) {
+  exitAllFull();
+  document.querySelectorAll('.screen').forEach(function (s) { s.classList.toggle('on', s.id === id); });
+  if (id !== 's-shoot') stopCamera();
+}
+
+/* 1. name */
+function initName() {
+  $('todayText').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  var saved = store.get('ccp_name');
+  if (saved) $('nameInput').value = saved;
+  var check = function () { $('nameNext').disabled = $('nameInput').value.trim().length < 2; };
+  $('nameInput').addEventListener('input', check);
+  $('nameInput').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !$('nameNext').disabled) goUnits(); });
+  $('nameNext').onclick = goUnits;
+  check();
+}
+function goUnits() {
+  S.name = $('nameInput').value.trim().replace(/\s+/g, ' ');
+  store.set('ccp_name', S.name);
+  $('hello').textContent = 'Hi, ' + S.name.split(' ')[0] + ' — ' + new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  show('s-units');
+  loadUnits();
+}
+function loadUnits() {
+  $('unitList').innerHTML = '<p class="muted">Loading units…</p>';
+  api('units').then(function (units) {
+    S.units = units;
+    var prog = store.get('ccp_progress');
+    $('unitList').innerHTML = units.length ? '' : '<p class="muted">No units found in the sheet.</p>';
+    units.forEach(function (u) {
+      var b = document.createElement('button');
+      b.className = 'unitBtn';
+      var resume = prog && prog.unit === u.name && prog.day === todayKey() && prog.name.toLowerCase() === S.name.toLowerCase();
+      b.innerHTML = '<span>' + esc(u.name) + (resume ? '<span class="pill">in progress</span>' : '') + '</span><small>' +
+        (u.refCount ? u.refCount + ' photo' + (u.refCount === 1 ? '' : 's') : 'not set up yet') + '</small>';
+      b.disabled = !u.refCount;
+      b.onclick = function () { startUnit(u.name); };
+      $('unitList').appendChild(b);
+    });
+  }).catch(function (e) { $('unitList').innerHTML = '<p class="muted">Could not load units: ' + esc(e.message) + '</p><button class="ghost" id="retryUnits">Try again</button>'; $('retryUnits').onclick = loadUnits; });
+}
+
+/* 3. shoot */
+function startUnit(unit) {
+  busy('Loading reference photos…');
+  api('references', { unit: unit }).then(function (refs) {
+    if (!refs.length) throw new Error('This unit has no reference photos yet.');
+    S.unit = unit; S.refs = refs; S.photos = refs.map(function () { return null; });
+    S.sid = newSid(); S.idx = 0; S.mode = 'live'; S.pending = null;
+    refs.forEach(function (r) { loadImage(r.id).catch(function () {}); });
+    var prog = store.get('ccp_progress');
+    var canResume = prog && prog.unit === unit && prog.day === todayKey() && prog.name.toLowerCase() === S.name.toLowerCase() &&
+      JSON.stringify(prog.refIds) === JSON.stringify(refs.map(function (r) { return r.id; })) && prog.done.some(Boolean);
+    busy(false);
+    return (canResume ? ask('Pick up where you left off? ' + prog.done.filter(Boolean).length + ' of ' + refs.length + ' photos are already saved.', { ok: 'Resume', cancel: 'Start over' }) : Promise.resolve(false))
+      .then(function (resume) {
+        if (resume) {
+          S.sid = prog.sid;
+          prog.done.forEach(function (id, i) { if (id) S.photos[i] = { status: 'done', fileId: id, dataUrl: null }; });
+        }
+        var first = S.photos.findIndex(function (p) { return !p; });
+        S.idx = first >= 0 ? first : 0;
+        show('s-shoot');
+        return startCamera();
+      }).then(function (ok) { S.liveCam = ok; go(S.idx); });
+  }).catch(function (e) { busy(false); toast(e.message); });
+}
+
+function startCamera() {
+  if (S.stream) return Promise.resolve(true);
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.resolve(false);
+  return navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false })
+    .then(function (stream) {
+      S.stream = stream;
+      var v = $('video'); v.srcObject = stream;
+      var p = v.play(); if (p && p.catch) p.catch(function () {});
+      stream.getVideoTracks()[0].addEventListener('ended', function () { S.stream = null; S.liveCam = false; renderShoot(); });
+      return true;
+    }).catch(function () { return false; });
+}
+function stopCamera() {
+  if (S.stream) { S.stream.getTracks().forEach(function (t) { t.stop(); }); S.stream = null; }
+  $('video').srcObject = null;
+}
+
+// Make the camera window the same shape as the reference photo, so lining up is 1:1.
+function layoutCamBox() {
+  var pane = $('topPane'), ref = $('refImg'), box = $('camBox');
+  var ar = (ref.naturalWidth && ref.naturalHeight && ref.getAttribute('data-for') === String(S.idx)) ? ref.naturalWidth / ref.naturalHeight : 3 / 4;
+  var w = pane.clientWidth, h = w / ar;
+  if (h > pane.clientHeight) { h = pane.clientHeight; w = h * ar; }
+  box.style.width = Math.floor(w) + 'px'; box.style.height = Math.floor(h) + 'px';
+}
+
+function captureFrame() {
+  var v = $('video'), box = $('camBox');
+  var vw = v.videoWidth, vh = v.videoHeight;
+  if (!vw || !vh) return null;
+  var bw = box.clientWidth, bh = box.clientHeight;
+  var sc = Math.max(bw / vw, bh / vh);
+  var sw = bw / sc, sh = bh / sc, sx = (vw - sw) / 2, sy = (vh - sh) / 2;   // exactly what is on screen
+  var k = Math.min(1, 1600 / Math.max(sw, sh));
+  var c = document.createElement('canvas');
+  c.width = Math.round(sw * k); c.height = Math.round(sh * k);
+  c.getContext('2d').drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.82);
+}
+
+function go(i) {
+  S.idx = Math.max(0, Math.min(S.refs.length - 1, i));
+  S.pending = null;
+  S.mode = S.photos[S.idx] ? 'saved' : 'live';
+  exitAllFull();
+  showRef();
+  renderShoot();
+}
+
+function showRef() {
+  var i = S.idx, img = $('refImg');
+  var ld = $('refLoading');
+  img.removeAttribute('src'); img.setAttribute('data-for', ''); ld.hidden = false; ld.textContent = 'Loading…';
+  $('refPane').onclick = null;
+  layoutCamBox();
+  loadImage(S.refs[i].id, true).then(function (src) {
+    if (S.idx !== i) return;
+    img.onload = function () { ld.hidden = true; layoutCamBox(); };
+    img.setAttribute('data-for', String(i));
+    img.src = src;
+  }).catch(function () {
+    if (S.idx !== i) return;
+    ld.textContent = 'Could not load this reference photo. Tap here to try again.';
+    $('refPane').onclick = function (e) { if (!e.target.closest('button')) showRef(); };
+  });
+}
+
+function allDone() { return S.photos.length > 0 && S.photos.every(function (p) { return p && p.status === 'done'; }); }
+
+function renderShoot() {
+  var n = S.refs.length, i = S.idx, p = S.photos[i];
+  $('counter').textContent = 'Photo ' + (i + 1) + ' of ' + n;
+  $('prevBtn').disabled = i === 0;
+  $('nextBtn').disabled = i === n - 1;
+  var doneCount = S.photos.filter(function (x) { return x && x.status === 'done'; }).length;
+  $('completeBtn').disabled = !allDone();
+  $('completeBtn').textContent = allDone() ? 'Complete' : 'Complete ' + doneCount + '/' + n;
+
+  // dots
+  var dots = $('dots'); dots.innerHTML = '';
+  if (n <= 30) S.photos.forEach(function (ph, k) {
+    var d = document.createElement('button');
+    d.className = 'dot' + (ph ? (ph.status === 'done' ? ' done' : ph.status === 'error' ? ' err' : ' up') : '') + (k === i ? ' cur' : '');
+    d.setAttribute('aria-label', 'Go to photo ' + (k + 1));
+    d.onclick = function () { go(k); };
+    dots.appendChild(d);
+  });
+
+  var live = S.mode === 'live', review = S.mode === 'review', saved = S.mode === 'saved';
+  var shot = $('shotImg');
+  $('video').hidden = !(live && S.liveCam);
+  $('camFallback').hidden = !(live && !S.liveCam);
+  $('shutter').hidden = !(live && S.liveCam);
+  $('reviewBtns').hidden = live;
+  $('acceptBtn').hidden = !review;
+  shot.hidden = live;
+
+  if (review && S.pending) shot.src = S.pending;
+  else if (saved && p) {
+    if (p.dataUrl) shot.src = p.dataUrl;
+    else { shot.removeAttribute('src'); loadImage(p.fileId).then(function (src) { if (S.idx === i && S.mode === 'saved') shot.src = src; }).catch(function () {}); }
+  }
+
+  var tag = $('shotStatus');
+  tag.hidden = !saved;
+  if (saved && p) {
+    tag.className = 'tag ' + (p.status === 'done' ? 'done' : p.status === 'error' ? 'err' : 'up');
+    tag.textContent = p.status === 'done' ? 'Saved ✓' : p.status === 'error' ? 'Not saved — tap to retry' : 'Saving…';
+  }
+}
+
+function accept() {
+  var i = S.idx, prev = S.photos[i];
+  var p = { dataUrl: S.pending, status: 'uploading', fileId: null, tries: 0, oldId: prev && prev.fileId ? prev.fileId : (prev && prev.oldId) || null };
+  S.photos[i] = p; S.pending = null; S.mode = 'saved';
+  upload(i, p);
+  var n = S.photos.length, next = -1;
+  for (var k = 1; k <= n; k++) { var j = (i + k) % n; if (!S.photos[j]) { next = j; break; } }
+  if (next >= 0) go(next);
+  else { S.mode = 'saved'; renderShoot(); toast('That\'s every photo. Tap Complete when they\'re all saved.'); }
+}
+
+function upload(i, p) {
+  p.status = 'uploading'; p.tries++;
+  renderShoot();
+  api('upload', { unit: S.unit, name: S.name, sessionId: S.sid, index: i, dataUrl: p.dataUrl }).then(function (r) {
+    if (S.photos[i] !== p) { api('discard', { sessionId: S.sid, id: r.id }).catch(function () {}); return; }
+    p.fileId = r.id; p.status = 'done';
+    if (p.oldId) { api('discard', { sessionId: S.sid, id: p.oldId }).catch(function () {}); p.oldId = null; }
+    saveProgress(); renderShoot();
+  }).catch(function (e) {
+    if (S.photos[i] !== p) return;
+    if (p.tries < 3) setTimeout(function () { if (S.photos[i] === p) upload(i, p); }, 2500 * p.tries);
+    else { p.status = 'error'; renderShoot(); toast('Photo ' + (i + 1) + ' did not save (' + e.message + '). Tap it to retry.'); }
+  });
+}
+
+function saveProgress() {
+  store.set('ccp_progress', {
+    unit: S.unit, name: S.name, day: todayKey(), sid: S.sid,
+    refIds: S.refs.map(function (r) { return r.id; }),
+    done: S.photos.map(function (p) { return p && p.status === 'done' ? p.fileId : null; })
+  });
+}
+
+function complete() {
+  if (!allDone()) return;
+  busy('Saving to the sheet…');
+  api('complete', { unit: S.unit, name: S.name, sessionId: S.sid, ids: S.photos.map(function (p) { return p.fileId; }) })
+    .then(function () {
+      busy(false); store.del('ccp_progress'); stopCamera();
+      $('doneTitle').textContent = 'Thanks, ' + S.name.split(' ')[0] + '!';
+      $('doneText').textContent = S.refs.length + ' photos saved for ' + S.unit + '.';
+      show('s-done');
+    }).catch(function (e) { busy(false); toast(e.message); });
+}
+
+function initShoot() {
+  $('exitShoot').innerHTML = ICON.close;
+  $('acceptBtn').innerHTML = ICON.check;
+  $('retakeBtn').innerHTML = ICON.retake;
+  $('prevBtn').innerHTML = ICON.left;
+  $('nextBtn').innerHTML = ICON.right;
+  $('openCam').innerHTML = ICON.camera + '<span>Take photo</span>';
+  $('prevBtn').onclick = function () { go(S.idx - 1); };
+  $('nextBtn').onclick = function () { go(S.idx + 1); };
+  $('completeBtn').onclick = complete;
+  $('shutter').onclick = function () {
+    var d = captureFrame();
+    if (!d) { toast('Camera not ready yet — try again.'); return; }
+    S.pending = d; S.mode = 'review'; renderShoot();
+  };
+  $('openCam').onclick = function () { $('fileCam').click(); };
+  $('fileCam').onchange = function () {
+    var f = this.files && this.files[0]; this.value = '';
+    if (!f) return;
+    fileToDataUrl(f).then(function (d) { S.pending = d; S.mode = 'review'; renderShoot(); }).catch(function (e) { toast(e.message); });
+  };
+  $('acceptBtn').onclick = accept;
+  $('retakeBtn').onclick = function () { S.pending = null; S.mode = 'live'; renderShoot(); };
+  $('shotStatus').onclick = function () { var p = S.photos[S.idx]; if (p && p.status === 'error') { p.tries = 0; upload(S.idx, p); } };
+  $('exitShoot').onclick = function () {
+    var any = S.photos.some(Boolean);
+    (any ? ask('Leave this unit? Saved photos are kept for today, so you can come back and finish.', { ok: 'Leave', cancel: 'Stay' }) : Promise.resolve(true))
+      .then(function (yes) { if (yes) { show('s-units'); loadUnits(); } });
+  };
+  window.addEventListener('resize', function () { if ($('s-shoot').classList.contains('on')) layoutCamBox(); });
+  window.addEventListener('beforeunload', function (e) {
+    if (S.photos.some(function (p) { return p && p.status === 'uploading'; })) { e.preventDefault(); e.returnValue = ''; }
+  });
+}
+
+/* 5. settings */
+function openAdmin() {
+  var proceed = S.pass ? Promise.resolve(S.pass) : ask('Enter the settings passcode', { input: true, ok: 'Enter' });
+  proceed.then(function (code) {
+    if (code == null || code === '') return;
+    busy('Checking…');
+    api('adminLogin', { pass: code }).then(function () {
+      S.pass = code; sess.set('ccp_pass', code); busy(false); show('s-admin'); loadAdmin();
+    }).catch(function (e) { busy(false); S.pass = ''; sess.set('ccp_pass', ''); toast(e.message); });
+  });
+}
+function loadAdmin() {
+  $('adminList').innerHTML = '<p class="muted">Loading…</p>';
+  api('adminSessions').then(function (units) {
+    var box = $('adminList'); box.innerHTML = '';
+    units.forEach(function (u) {
+      var div = document.createElement('div'); div.className = 'unitBlock';
+      div.innerHTML = '<div class="unitHead"><b>' + esc(u.unit) + '</b><button class="ghost">Reference photos (' + u.refCount + ')</button></div>';
+      div.querySelector('.ghost').onclick = function () { openRefs(u.unit); };
+      var ul = document.createElement('ul'); ul.className = 'indent';
+      if (!u.sessions.length) ul.innerHTML = '<li class="muted small" style="padding:6px">No photo sets yet</li>';
+      u.sessions.forEach(function (s) {
+        var li = document.createElement('li'), b = document.createElement('button');
+        b.innerHTML = esc(s.name) + '<span class="when">' + esc(s.when) + '</span>';
+        b.onclick = function () { openViewer(u.unit, s); };
+        li.appendChild(b); ul.appendChild(li);
+      });
+      div.appendChild(ul); box.appendChild(div);
+    });
+  }).catch(function (e) { $('adminList').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; });
+}
+
+/* 6. viewer */
+var V = { unit: '', s: null, pairs: [], idx: 0 };
+function openViewer(unit, s) {
+  busy('Opening…');
+  api('adminSession', { unit: unit, col: s.col }).then(function (d) {
+    busy(false);
+    V = { unit: unit, s: d, pairs: d.pairs, idx: 0 };
+    d.pairs.forEach(function (p) { if (p.ref) loadImage(p.ref).catch(function () {}); if (p.photo) loadImage(p.photo).catch(function () {}); });
+    show('s-viewer'); renderViewer();
+  }).catch(function (e) { busy(false); toast(e.message); });
+}
+function setPaneImage(imgId, loadingId, fileId, i) {
+  var img = $(imgId), ld = $(loadingId);
+  img.removeAttribute('src'); ld.hidden = false; ld.textContent = fileId ? 'Loading…' : 'No photo for this one';
+  if (!fileId) return;
+  loadImage(fileId, true).then(function (src) { if (V.idx !== i) return; img.onload = function () { ld.hidden = true; }; img.src = src; })
+    .catch(function () { if (V.idx === i) ld.textContent = 'Could not load this photo. Tap ‹ or › and come back to retry.'; });
+}
+function renderViewer() {
+  var n = V.pairs.length, i = V.idx;
+  exitAllFull();
+  $('vCounter').textContent = n ? (i + 1) + ' of ' + n : 'No photos';
+  $('vPrev').disabled = i <= 0; $('vNext').disabled = i >= n - 1;
+  $('vTopLabel').textContent = V.s.name + ' · ' + V.unit + ' · ' + V.s.when;
+  if (!n) return;
+  setPaneImage('vTopImg', 'vTopLoading', V.pairs[i].photo, i);
+  setPaneImage('vBotImg', 'vBotLoading', V.pairs[i].ref, i);
+}
+
+/* 7. reference manager */
+var R = { unit: '', refs: [], replaceRow: null };
+function openRefs(unit) { R.unit = unit; $('refsTitle').textContent = unit; show('s-refs'); $('refList').innerHTML = '<p class="muted">Loading…</p>'; api('references', { unit: unit }).then(renderRefs).catch(function (e) { toast(e.message); }); }
+function renderRefs(refs) {
+  R.refs = refs;
+  var box = $('refList'); box.innerHTML = refs.length ? '' : '<p class="muted">No reference photos yet. Tap “Add reference photos”.</p>';
+  refs.forEach(function (r, k) {
+    var d = document.createElement('div'); d.className = 'refItem';
+    d.innerHTML = '<span class="num">' + (k + 1) + '</span><img class="thumb" alt=""><div class="refActs">' +
+      '<button data-a="up"' + (k === 0 ? ' disabled' : '') + '>↑</button><button data-a="down"' + (k === refs.length - 1 ? ' disabled' : '') + '>↓</button>' +
+      '<button data-a="rep">Replace</button><button data-a="del" class="del">Delete</button></div>';
+    loadImage(r.id).then(function (src) { d.querySelector('img').src = src; }).catch(function () {});
+    d.querySelector('[data-a=up]').onclick = function () { refAction('adminMoveRef', { row: r.row, dir: -1 }, 'Moving…'); };
+    d.querySelector('[data-a=down]').onclick = function () { refAction('adminMoveRef', { row: r.row, dir: 1 }, 'Moving…'); };
+    d.querySelector('[data-a=rep]').onclick = function () { R.replaceRow = r.row; $('fileRefOne').click(); };
+    d.querySelector('[data-a=del]').onclick = function () {
+      ask('Delete reference photo ' + (k + 1) + '? This also removes cleaners\' photos in that row of the sheet.', { ok: 'Delete', danger: true })
+        .then(function (yes) { if (yes) refAction('adminDeleteRef', { row: r.row }, 'Deleting…'); });
+    };
+    box.appendChild(d);
+  });
+}
+function refAction(action, params, label) {
+  busy(label);
+  return api(action, Object.assign({ unit: R.unit }, params)).then(function (refs) { busy(false); renderRefs(refs); })
+    .catch(function (e) { busy(false); toast(e.message); });
+}
+function initRefs() {
+  $('refsBack').onclick = function () { show('s-admin'); loadAdmin(); };
+  $('addRefs').onclick = function () { $('fileRefs').click(); };
+  $('fileRefs').onchange = function () {
+    var files = Array.prototype.slice.call(this.files || []); this.value = '';
+    if (!files.length) return;
+    var k = 0;
+    (function nextFile() {
+      if (k >= files.length) { busy(false); toast(files.length + ' photo' + (files.length === 1 ? '' : 's') + ' added'); return; }
+      busy('Adding photo ' + (k + 1) + ' of ' + files.length + '…');
+      fileToDataUrl(files[k]).then(function (d) { return api('adminAddRef', { unit: R.unit, dataUrl: d }); })
+        .then(function (refs) { renderRefs(refs); k++; nextFile(); })
+        .catch(function (e) { busy(false); toast('Stopped at photo ' + (k + 1) + ': ' + e.message); });
+    })();
+  };
+  $('fileRefOne').onchange = function () {
+    var f = this.files && this.files[0]; this.value = '';
+    if (!f || R.replaceRow == null) return;
+    busy('Replacing…');
+    fileToDataUrl(f).then(function (d) { return api('adminReplaceRef', { unit: R.unit, row: R.replaceRow, dataUrl: d }); })
+      .then(function (refs) { busy(false); renderRefs(refs); }).catch(function (e) { busy(false); toast(e.message); });
+  };
+}
+
+/* ---------- start ---------- */
+function init() {
+  document.querySelectorAll('[data-admin]').forEach(function (b) { b.innerHTML = ICON.gear; b.onclick = openAdmin; });
+  document.querySelectorAll('[data-fs]').forEach(function (b) {
+    b.innerHTML = ICON.expand;
+    b.onclick = function (e) { e.stopPropagation(); var p = b.closest('.zoomable'); setFull(p, !p.classList.contains('full')); };
+  });
+  document.querySelectorAll('.zoomable').forEach(makeZoomable);
+  $('vPrev').innerHTML = ICON.left; $('vNext').innerHTML = ICON.right;
+  $('vPrev').onclick = function () { V.idx--; renderViewer(); };
+  $('vNext').onclick = function () { V.idx++; renderViewer(); };
+  $('vMenu').onclick = function () { show('s-admin'); };
+  $('unitsBack').onclick = function () { show('s-name'); };
+  $('doneBtn').onclick = function () { show('s-units'); loadUnits(); };
+  $('adminExit').onclick = function () { show(S.name ? 's-units' : 's-name'); if (S.name) loadUnits(); };
+  $('adminRefresh').onclick = loadAdmin;
+  initName(); initShoot(); initRefs();
+  show('s-name');
+}
+init();
+})();
+</script>
+</body>
+</html>
