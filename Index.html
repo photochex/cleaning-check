@@ -302,26 +302,55 @@ function ask(msg, opts) {
 }
 
 /* ---------- talking to the Google Sheet ---------- */
+// Every request has a time limit, so the app can never spin forever.
+// Read-only requests retry by themselves before giving up.
+var SLOW_ACTIONS = /^(upload|complete|adminAddRef|adminReplaceRef)$/;
+var RETRY_ACTIONS = /^(units|references|adminSessions|adminSession)$/;
+function send(req, ms) {
+  var ctl = window.AbortController ? new AbortController() : null, timer, call;
+  if (window.__mockApi) call = window.__mockApi(req);
+  else if (window.google && google.script && google.script.run) {
+    call = new Promise(function (res, rej) {
+      google.script.run.withSuccessHandler(res).withFailureHandler(function (e) { rej(new Error((e && e.message) || 'Connection problem')); }).apiRun(req);
+    });
+  } else if (!API_URL) return Promise.reject(new Error('This page is not connected yet (API_URL is empty).'));
+  else {
+    call = fetch(API_URL, { method: 'POST', body: JSON.stringify(req), signal: ctl ? ctl.signal : undefined })
+      .then(function (r) { return r.json(); })
+      .catch(function () { throw new Error('Could not reach the photo storage'); });
+  }
+  var limit = new Promise(function (_, rej) { timer = setTimeout(function () { if (ctl) ctl.abort(); rej(new Error('timeout')); }, ms); });
+  return Promise.race([call, limit]).then(function (r) { clearTimeout(timer); return r; }, function (e) { clearTimeout(timer); throw e; });
+}
 function api(action, params) {
   var req = Object.assign({ action: action }, params || {});
   if (action.indexOf('admin') === 0 && req.pass == null) req.pass = S.pass;
-  var handle = function (r) { if (!r || !r.ok) throw new Error((r && r.error) || 'No response from the sheet'); return r.data; };
-  if (window.__mockApi) return window.__mockApi(req).then(handle);
-  if (window.google && google.script && google.script.run) {
-    return new Promise(function (res, rej) {
-      google.script.run.withSuccessHandler(res).withFailureHandler(function (e) { rej(new Error((e && e.message) || 'Connection problem')); }).apiRun(req);
-    }).then(handle);
-  }
-  if (!API_URL) return Promise.reject(new Error('This page is not connected yet (API_URL is empty).'));
-  return fetch(API_URL, { method: 'POST', body: JSON.stringify(req) })
-    .then(function (r) { return r.json(); }, function () { throw new Error('Could not reach the photo storage'); })
-    .then(handle);
+  var ms = window.__apiTimeoutMs || (SLOW_ACTIONS.test(action) ? 90000 : 25000);
+  var tries = RETRY_ACTIONS.test(action) ? 3 : 1;
+  var attempt = function (n) {
+    return send(req, ms).catch(function (e) {
+      if (n < tries) return wait(1500 * n).then(function () { return attempt(n + 1); });
+      throw new Error(e.message === 'timeout' ? 'The photo storage took too long to answer. Please try again.' : e.message);
+    });
+  };
+  return attempt(1).then(function (r) { if (!r || !r.ok) throw new Error((r && r.error) || 'No response from the sheet'); return r.data; });
 }
 function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
-// Photos load a few at a time and retry on their own, so a slow start or weak signal doesn't fail them.
-var imgCache = {}, imgQueue = [], imgActive = 0;
+
+// Photos load straight from Google Drive (fast). If that fails, they come through
+// the sheet's script instead (slower), a few at a time, retrying on their own.
+var imgCache = {}, imgQueue = [], imgActive = 0, directFails = 0;
+function tryDirect(id) {
+  if (directFails >= 3) return Promise.reject(new Error('direct off'));
+  return new Promise(function (res, rej) {
+    var im = new Image(), t = setTimeout(function () { im.onload = im.onerror = null; rej(new Error('slow')); }, 15000);
+    im.onload = function () { clearTimeout(t); if (im.naturalWidth > 1) { directFails = 0; res(im.src); } else { directFails++; rej(new Error('bad')); } };
+    im.onerror = function () { clearTimeout(t); directFails++; rej(new Error('blocked')); };
+    im.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(id) + '&sz=w1600';
+  });
+}
 function pumpImages() {
-  while (imgActive < 3 && imgQueue.length) {
+  while (imgActive < 4 && imgQueue.length) {
     var job = imgQueue.shift(); imgActive++;
     (function (job) {
       var attempt = function (n) {
@@ -330,7 +359,8 @@ function pumpImages() {
           return wait(1500 * n).then(function () { return attempt(n + 1); });
         });
       };
-      attempt(1).then(job.res, job.rej).then(function () { imgActive--; pumpImages(); });
+      tryDirect(job.id).catch(function () { return attempt(1); })
+        .then(job.res, job.rej).then(function () { imgActive--; pumpImages(); });
     })(job);
   }
 }
@@ -339,6 +369,9 @@ function loadImage(id, urgent) {
     imgCache[id] = new Promise(function (res, rej) {
       imgQueue[urgent ? 'unshift' : 'push']({ id: id, res: res, rej: rej }); pumpImages();
     }).catch(function (e) { delete imgCache[id]; throw e; });
+  } else if (urgent) {
+    // Already waiting in line? Move it to the front.
+    for (var k = 0; k < imgQueue.length; k++) if (imgQueue[k].id === id) { imgQueue.unshift(imgQueue.splice(k, 1)[0]); break; }
   }
   return imgCache[id];
 }
