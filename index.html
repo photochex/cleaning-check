@@ -59,6 +59,7 @@ label{display:block;font-weight:600;margin:22px 0 6px}
 .complete{height:38px;padding:0 14px;border:0;border-radius:10px;background:var(--ok);color:#fff;font-weight:700;font-size:15px}
 .complete:disabled{background:#2a2a2f;color:#77777d}
 .menuBtn{height:38px;padding:0 14px;border:0;border-radius:10px;background:#2a2a2f;color:#fff;font-weight:600;font-size:15px}
+.delBtn{height:38px;padding:0 12px;border:1px solid #e0675d;border-radius:10px;background:transparent;color:#ff8a80;font-weight:600;font-size:14px}
 
 /* very small buttons (bigger invisible tap area so they are still easy to hit) */
 .tiny{position:absolute;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;padding:0;display:grid;place-items:center;z-index:6}
@@ -212,6 +213,7 @@ label{display:block;font-weight:600;margin:22px 0 6px}
     <button class="nav" id="vPrev" aria-label="Previous"></button>
     <div class="mid"><div class="counter" id="vCounter"></div></div>
     <button class="nav" id="vNext" aria-label="Next"></button>
+    <button class="delBtn" id="vDelete">Delete</button>
     <button class="menuBtn" id="vMenu">Main menu</button>
   </div>
   <div class="half zoomable" id="vBot">
@@ -229,7 +231,7 @@ label{display:block;font-weight:600;margin:22px 0 6px}
     <h2 id="refsTitle"></h2>
     <p class="muted small" style="margin-top:0">Cleaners see these in this order. Take them with the phone held the way cleaners will hold it.</p>
     <button class="primary" id="addRefs">+ Add reference photos</button>
-    <div class="note">Moving or deleting a photo moves/deletes that whole row in the sheet, so past cleanings stay matched. <b>Delete also removes cleaners' photos in that row.</b></div>
+    <div class="note">Replacing or deleting a reference photo never removes cleaners' past photos. They stay with the cleaner's name and date, next to the reference they were taken against. New cleanings use the new photo.</div>
     <div id="refList"></div>
   </div>
 </section>
@@ -302,24 +304,77 @@ function ask(msg, opts) {
 }
 
 /* ---------- talking to the Google Sheet ---------- */
+// Every request has a time limit, so the app can never spin forever.
+// Read-only requests retry by themselves before giving up.
+var SLOW_ACTIONS = /^(upload|complete|adminAddRef|adminReplaceRef)$/;
+var RETRY_ACTIONS = /^(units|references|adminSessions|adminSession)$/;
+function send(req, ms) {
+  var ctl = window.AbortController ? new AbortController() : null, timer, call;
+  if (window.__mockApi) call = window.__mockApi(req);
+  else if (window.google && google.script && google.script.run) {
+    call = new Promise(function (res, rej) {
+      google.script.run.withSuccessHandler(res).withFailureHandler(function (e) { rej(new Error((e && e.message) || 'Connection problem')); }).apiRun(req);
+    });
+  } else if (!API_URL) return Promise.reject(new Error('This page is not connected yet (API_URL is empty).'));
+  else {
+    call = fetch(API_URL, { method: 'POST', body: JSON.stringify(req), signal: ctl ? ctl.signal : undefined })
+      .then(function (r) { return r.json(); })
+      .catch(function () { throw new Error('Could not reach the photo storage'); });
+  }
+  var limit = new Promise(function (_, rej) { timer = setTimeout(function () { if (ctl) ctl.abort(); rej(new Error('timeout')); }, ms); });
+  return Promise.race([call, limit]).then(function (r) { clearTimeout(timer); return r; }, function (e) { clearTimeout(timer); throw e; });
+}
 function api(action, params) {
   var req = Object.assign({ action: action }, params || {});
   if (action.indexOf('admin') === 0 && req.pass == null) req.pass = S.pass;
-  var handle = function (r) { if (!r || !r.ok) throw new Error((r && r.error) || 'No response from the sheet'); return r.data; };
-  if (window.__mockApi) return window.__mockApi(req).then(handle);
-  if (window.google && google.script && google.script.run) {
-    return new Promise(function (res, rej) {
-      google.script.run.withSuccessHandler(res).withFailureHandler(function (e) { rej(new Error((e && e.message) || 'Connection problem')); }).apiRun(req);
-    }).then(handle);
-  }
-  if (!API_URL) return Promise.reject(new Error('This page is not connected yet (API_URL is empty).'));
-  return fetch(API_URL, { method: 'POST', body: JSON.stringify(req) })
-    .then(function (r) { return r.json(); }, function () { throw new Error('No internet connection'); })
-    .then(handle);
+  var ms = window.__apiTimeoutMs || (SLOW_ACTIONS.test(action) ? 90000 : 25000);
+  var tries = RETRY_ACTIONS.test(action) ? 3 : 1;
+  var attempt = function (n) {
+    return send(req, ms).catch(function (e) {
+      if (n < tries) return wait(1500 * n).then(function () { return attempt(n + 1); });
+      throw new Error(e.message === 'timeout' ? 'The photo storage took too long to answer. Please try again.' : e.message);
+    });
+  };
+  return attempt(1).then(function (r) { if (!r || !r.ok) throw new Error((r && r.error) || 'No response from the sheet'); return r.data; });
 }
-var imgCache = {};
-function loadImage(id) {
-  if (!imgCache[id]) imgCache[id] = api('image', { id: id }).catch(function (e) { delete imgCache[id]; throw e; });
+function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+// Photos load straight from Google Drive (fast). If that fails, they come through
+// the sheet's script instead (slower), a few at a time, retrying on their own.
+var imgCache = {}, imgQueue = [], imgActive = 0, directFails = 0;
+function tryDirect(id) {
+  if (directFails >= 3) return Promise.reject(new Error('direct off'));
+  return new Promise(function (res, rej) {
+    var im = new Image(), t = setTimeout(function () { im.onload = im.onerror = null; rej(new Error('slow')); }, 15000);
+    im.onload = function () { clearTimeout(t); if (im.naturalWidth > 1) { directFails = 0; res(im.src); } else { directFails++; rej(new Error('bad')); } };
+    im.onerror = function () { clearTimeout(t); directFails++; rej(new Error('blocked')); };
+    im.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(id) + '&sz=w1600';
+  });
+}
+function pumpImages() {
+  while (imgActive < 4 && imgQueue.length) {
+    var job = imgQueue.shift(); imgActive++;
+    (function (job) {
+      var attempt = function (n) {
+        return api('image', { id: job.id }).catch(function (e) {
+          if (n >= 3 || /not available|Bad photo/.test(e.message)) throw e;
+          return wait(1500 * n).then(function () { return attempt(n + 1); });
+        });
+      };
+      tryDirect(job.id).catch(function () { return attempt(1); })
+        .then(job.res, job.rej).then(function () { imgActive--; pumpImages(); });
+    })(job);
+  }
+}
+function loadImage(id, urgent) {
+  if (!imgCache[id]) {
+    imgCache[id] = new Promise(function (res, rej) {
+      imgQueue[urgent ? 'unshift' : 'push']({ id: id, res: res, rej: rej }); pumpImages();
+    }).catch(function (e) { delete imgCache[id]; throw e; });
+  } else if (urgent) {
+    // Already waiting in line? Move it to the front.
+    for (var k = 0; k < imgQueue.length; k++) if (imgQueue[k].id === id) { imgQueue.unshift(imgQueue.splice(k, 1)[0]); break; }
+  }
   return imgCache[id];
 }
 
@@ -518,14 +573,20 @@ function go(i) {
 
 function showRef() {
   var i = S.idx, img = $('refImg');
-  img.removeAttribute('src'); img.setAttribute('data-for', ''); $('refLoading').hidden = false;
+  var ld = $('refLoading');
+  img.removeAttribute('src'); img.setAttribute('data-for', ''); ld.hidden = false; ld.textContent = 'Loading…';
+  $('refPane').onclick = null;
   layoutCamBox();
-  loadImage(S.refs[i].id).then(function (src) {
+  loadImage(S.refs[i].id, true).then(function (src) {
     if (S.idx !== i) return;
-    img.onload = function () { $('refLoading').hidden = true; layoutCamBox(); };
+    img.onload = function () { ld.hidden = true; layoutCamBox(); };
     img.setAttribute('data-for', String(i));
     img.src = src;
-  }).catch(function (e) { if (S.idx === i) $('refLoading').textContent = 'Could not load reference: ' + e.message; });
+  }).catch(function () {
+    if (S.idx !== i) return;
+    ld.textContent = 'Could not load this reference photo. Tap here to try again.';
+    $('refPane').onclick = function (e) { if (!e.target.closest('button')) showRef(); };
+  });
 }
 
 function allDone() { return S.photos.length > 0 && S.photos.every(function (p) { return p && p.status === 'done'; }); }
@@ -691,7 +752,7 @@ function openViewer(unit, s) {
   busy('Opening…');
   api('adminSession', { unit: unit, col: s.col }).then(function (d) {
     busy(false);
-    V = { unit: unit, s: d, pairs: d.pairs, idx: 0 };
+    V = { unit: unit, s: d, pairs: d.pairs, idx: 0, col: s.col };
     d.pairs.forEach(function (p) { if (p.ref) loadImage(p.ref).catch(function () {}); if (p.photo) loadImage(p.photo).catch(function () {}); });
     show('s-viewer'); renderViewer();
   }).catch(function (e) { busy(false); toast(e.message); });
@@ -700,8 +761,8 @@ function setPaneImage(imgId, loadingId, fileId, i) {
   var img = $(imgId), ld = $(loadingId);
   img.removeAttribute('src'); ld.hidden = false; ld.textContent = fileId ? 'Loading…' : 'No photo for this one';
   if (!fileId) return;
-  loadImage(fileId).then(function (src) { if (V.idx !== i) return; img.onload = function () { ld.hidden = true; }; img.src = src; })
-    .catch(function (e) { if (V.idx === i) ld.textContent = 'Could not load: ' + e.message; });
+  loadImage(fileId, true).then(function (src) { if (V.idx !== i) return; img.onload = function () { ld.hidden = true; }; img.src = src; })
+    .catch(function () { if (V.idx === i) ld.textContent = 'Could not load this photo. Tap ‹ or › and come back to retry.'; });
 }
 function renderViewer() {
   var n = V.pairs.length, i = V.idx;
@@ -724,13 +785,13 @@ function renderRefs(refs) {
     var d = document.createElement('div'); d.className = 'refItem';
     d.innerHTML = '<span class="num">' + (k + 1) + '</span><img class="thumb" alt=""><div class="refActs">' +
       '<button data-a="up"' + (k === 0 ? ' disabled' : '') + '>↑</button><button data-a="down"' + (k === refs.length - 1 ? ' disabled' : '') + '>↓</button>' +
-      '<button data-a="rep">Replace</button><button data-a="del" class="del">Delete</button></div>';
+      '<button data-a="rep">Replace</button><button data-a="del" class="del">Remove</button></div>';
     loadImage(r.id).then(function (src) { d.querySelector('img').src = src; }).catch(function () {});
     d.querySelector('[data-a=up]').onclick = function () { refAction('adminMoveRef', { row: r.row, dir: -1 }, 'Moving…'); };
     d.querySelector('[data-a=down]').onclick = function () { refAction('adminMoveRef', { row: r.row, dir: 1 }, 'Moving…'); };
     d.querySelector('[data-a=rep]').onclick = function () { R.replaceRow = r.row; $('fileRefOne').click(); };
     d.querySelector('[data-a=del]').onclick = function () {
-      ask('Delete reference photo ' + (k + 1) + '? This also removes cleaners\' photos in that row of the sheet.', { ok: 'Delete', danger: true })
+      ask('Remove reference photo ' + (k + 1) + ' from the cleaners\' list? Cleaners\' past photos for it are kept.', { ok: 'Remove', danger: true })
         .then(function (yes) { if (yes) refAction('adminDeleteRef', { row: r.row }, 'Deleting…'); });
     };
     box.appendChild(d);
@@ -777,6 +838,16 @@ function init() {
   $('vPrev').onclick = function () { V.idx--; renderViewer(); };
   $('vNext').onclick = function () { V.idx++; renderViewer(); };
   $('vMenu').onclick = function () { show('s-admin'); };
+  $('vDelete').onclick = function () {
+    ask('Delete all of ' + V.s.name + '\'s photos for ' + V.unit + ' (' + V.s.when + ')? This removes that column from the sheet. The photos go to Google Drive\'s trash.', { ok: 'Delete', danger: true })
+      .then(function (yes) {
+        if (!yes) return;
+        busy('Deleting…');
+        api('adminDeleteSession', { unit: V.unit, col: V.col, name: V.s.name }).then(function () {
+          busy(false); toast('Photo set deleted'); show('s-admin'); loadAdmin();
+        }).catch(function (e) { busy(false); toast(e.message); });
+      });
+  };
   $('unitsBack').onclick = function () { show('s-name'); };
   $('doneBtn').onclick = function () { show('s-units'); loadUnits(); };
   $('adminExit').onclick = function () { show(S.name ? 's-units' : 's-name'); if (S.name) loadUnits(); };
