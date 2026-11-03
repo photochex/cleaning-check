@@ -88,6 +88,26 @@ label{display:block;font-weight:600;margin:22px 0 6px}
 .zoomable.full{position:fixed;inset:0;z-index:60;flex:none;touch-action:none}
 .zoomable.full .tiny.tr{top:max(10px,env(safe-area-inset-top));right:10px}
 
+/* reference walk-through camera */
+.secondary{display:block;width:100%;font-size:16px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font-weight:600;margin-top:10px}
+.rcTop{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;padding-top:max(10px,env(safe-area-inset-top));background:var(--bar)}
+.rcTop div{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rcDone{flex:none;height:38px;padding:0 16px;border:0;border-radius:10px;background:var(--ok);color:#fff;font-weight:700;font-size:15px}
+.rcStage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:8px}
+.rcBox{position:relative;overflow:hidden;background:#111;border-radius:6px}
+.rcBox video,.rcBox img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#rcShot{object-fit:contain;background:#000}
+#rcGhost{opacity:.38;pointer-events:none}
+.rcBar{flex:none;padding:10px 12px;padding-bottom:max(14px,env(safe-area-inset-bottom));background:var(--bar);display:flex;flex-direction:column;align-items:center;gap:10px}
+.rcStatus{font-size:14px;color:#cfcfd4;min-height:18px;text-align:center}
+.rcStatus b{color:#fff}
+.rcBtns{display:flex;align-items:center;justify-content:center;gap:16px;min-height:66px}
+.shutterRc{width:66px;height:66px;border-radius:50%;border:5px solid #fff;background:rgba(255,255,255,.25);padding:0}
+.shutterRc:active{background:rgba(255,255,255,.7)}
+.rcBtn{height:50px;padding:0 22px;border-radius:14px;border:1px solid #55555c;background:#2a2a2f;color:#fff;font-weight:700;font-size:16px}
+.rcBtn.ok{background:var(--ok);border-color:var(--ok)}
+.rcGhostToggle{font-size:13px;color:#cfcfd4;display:flex;align-items:center;gap:6px}
+
 /* admin */
 .unitBlock{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:12px}
 .unitHead{display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -108,6 +128,7 @@ label{display:block;font-weight:600;margin:22px 0 6px}
 /* overlays */
 #toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;z-index:100;max-width:90%;text-align:center;opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.on{opacity:1}
+#s-refcam.on ~ #toast{bottom:auto;top:calc(62px + env(safe-area-inset-top))}
 #busy{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:90}
 #busy.on{display:flex}
 #busy div{background:#fff;color:#222;padding:16px 20px;border-radius:14px;font-size:15px;display:flex;gap:10px;align-items:center}
@@ -230,11 +251,35 @@ label{display:block;font-weight:600;margin:22px 0 6px}
     <div class="topbar"><button class="link" id="refsBack">‹ Settings</button></div>
     <h2 id="refsTitle"></h2>
     <p class="muted small" style="margin-top:0">Cleaners see these in this order. Take them with the phone held the way cleaners will hold it.</p>
-    <button class="primary" id="addRefs">+ Add reference photos</button>
+    <button class="primary" id="walkRefs">📷 Walk through &amp; take photos</button>
+    <button class="secondary" id="addRefs">+ Add reference photos (from phone or computer)</button>
     <div class="note">Replacing or deleting a reference photo never removes cleaners' past photos. They stay with the cleaner's name and date, next to the reference they were taken against. New cleanings use the new photo.</div>
     <div id="refList"></div>
   </div>
 </section>
+
+<!-- 8. REFERENCE WALK-THROUGH CAMERA -->
+<section id="s-refcam" class="screen dark">
+  <div class="rcTop"><div id="rcTitle"></div><button class="rcDone" id="rcDone">Done</button></div>
+  <div class="rcStage" id="rcStage">
+    <div class="rcBox" id="rcBox">
+      <video id="rcVideo" playsinline muted autoplay></video>
+      <img id="rcGhost" alt="" hidden>
+      <img id="rcShot" alt="" hidden>
+      <div class="fallback" id="rcFallback" hidden><button class="bigBtn" id="rcOpenCam"></button><p>Opens your phone's camera. Hold the phone upright, the way cleaners will.</p></div>
+    </div>
+  </div>
+  <div class="rcBar">
+    <div class="rcStatus" id="rcStatus"></div>
+    <div class="rcBtns">
+      <button class="shutterRc" id="rcShutter" aria-label="Take photo"></button>
+      <button class="rcBtn" id="rcRetake">↺ Retake</button>
+      <button class="rcBtn ok" id="rcKeep">✓ Keep</button>
+    </div>
+    <label class="rcGhostToggle" id="rcGhostWrap" hidden><input type="checkbox" id="rcGhostChk" checked> Show the old photo to line up</label>
+  </div>
+</section>
+<input type="file" id="rcFile" accept="image/*" capture="environment" hidden>
 
 <input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
 <input type="file" id="fileRefs" accept="image/*" multiple hidden>
@@ -457,6 +502,7 @@ function show(id) {
   exitAllFull();
   document.querySelectorAll('.screen').forEach(function (s) { s.classList.toggle('on', s.id === id); });
   if (id !== 's-shoot') stopCamera();
+  if (id !== 's-refcam' && window.stopRcCamera) stopRcCamera();
 }
 
 /* 1. name */
@@ -780,16 +826,17 @@ var R = { unit: '', refs: [], replaceRow: null };
 function openRefs(unit) { R.unit = unit; $('refsTitle').textContent = unit; show('s-refs'); $('refList').innerHTML = '<p class="muted">Loading…</p>'; api('references', { unit: unit }).then(renderRefs).catch(function (e) { toast(e.message); }); }
 function renderRefs(refs) {
   R.refs = refs;
-  var box = $('refList'); box.innerHTML = refs.length ? '' : '<p class="muted">No reference photos yet. Tap “Add reference photos”.</p>';
+  var box = $('refList'); box.innerHTML = refs.length ? '' : '<p class="muted">No reference photos yet. Tap “Walk through &amp; take photos” and start at the front door.</p>';
   refs.forEach(function (r, k) {
     var d = document.createElement('div'); d.className = 'refItem';
     d.innerHTML = '<span class="num">' + (k + 1) + '</span><img class="thumb" alt=""><div class="refActs">' +
       '<button data-a="up"' + (k === 0 ? ' disabled' : '') + '>↑</button><button data-a="down"' + (k === refs.length - 1 ? ' disabled' : '') + '>↓</button>' +
-      '<button data-a="rep">Replace</button><button data-a="del" class="del">Remove</button></div>';
+      '<button data-a="cam">📷 Retake</button><button data-a="rep">Replace</button><button data-a="del" class="del">Remove</button></div>';
     loadImage(r.id).then(function (src) { d.querySelector('img').src = src; }).catch(function () {});
     d.querySelector('[data-a=up]').onclick = function () { refAction('adminMoveRef', { row: r.row, dir: -1 }, 'Moving…'); };
     d.querySelector('[data-a=down]').onclick = function () { refAction('adminMoveRef', { row: r.row, dir: 1 }, 'Moving…'); };
     d.querySelector('[data-a=rep]').onclick = function () { R.replaceRow = r.row; $('fileRefOne').click(); };
+    d.querySelector('[data-a=cam]').onclick = function () { openRefCam('retake', r, k); };
     d.querySelector('[data-a=del]').onclick = function () {
       ask('Remove reference photo ' + (k + 1) + ' from the cleaners\' list? Cleaners\' past photos for it are kept.', { ok: 'Remove', danger: true })
         .then(function (yes) { if (yes) refAction('adminDeleteRef', { row: r.row }, 'Deleting…'); });
@@ -802,7 +849,120 @@ function refAction(action, params, label) {
   return api(action, Object.assign({ unit: R.unit }, params)).then(function (refs) { busy(false); renderRefs(refs); })
     .catch(function (e) { busy(false); toast(e.message); });
 }
+/* walk-through camera: take reference photos in order as you walk the unit */
+var RC = { mode: 'walk', row: null, num: 0, stream: null, live: false, pending: null, queue: [], sending: false, saved: 0, failed: false };
+function rcLayout() {
+  var st = $('rcStage'), box = $('rcBox'), ar = 3 / 4;                    // portrait, same shape cleaners see
+  var w = st.clientWidth - 16, h = st.clientHeight - 16, bw = w, bh = bw / ar;
+  if (bh > h) { bh = h; bw = bh * ar; }
+  box.style.width = Math.max(0, Math.floor(bw)) + 'px'; box.style.height = Math.max(0, Math.floor(bh)) + 'px';
+}
+function startRcCamera() {
+  if (RC.stream) return Promise.resolve(true);
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.resolve(false);
+  return navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false })
+    .then(function (stream) {
+      RC.stream = stream; var v = $('rcVideo'); v.srcObject = stream;
+      var p = v.play(); if (p && p.catch) p.catch(function () {});
+      return true;
+    }).catch(function () { return false; });
+}
+window.stopRcCamera = function () {
+  if (RC.stream) { RC.stream.getTracks().forEach(function (t) { t.stop(); }); RC.stream = null; }
+  $('rcVideo').srcObject = null;
+};
+function rcCapture() {
+  var v = $('rcVideo'), box = $('rcBox'), vw = v.videoWidth, vh = v.videoHeight;
+  if (!vw || !vh) return null;
+  var bw = box.clientWidth, bh = box.clientHeight, sc = Math.max(bw / vw, bh / vh);
+  var sw = bw / sc, sh = bh / sc, sx = (vw - sw) / 2, sy = (vh - sh) / 2;   // exactly what's on screen
+  var k = Math.min(1, 1600 / Math.max(sw, sh)), c = document.createElement('canvas');
+  c.width = Math.round(sw * k); c.height = Math.round(sh * k);
+  c.getContext('2d').drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.85);
+}
+function rcRender() {
+  var review = !!RC.pending;
+  $('rcVideo').hidden = review || !RC.live;
+  $('rcFallback').hidden = review || RC.live;
+  $('rcShot').hidden = !review;
+  if (review) $('rcShot').src = RC.pending;
+  $('rcGhost').hidden = review || RC.mode !== 'retake' || !$('rcGhostChk').checked || !$('rcGhost').getAttribute('src');
+  $('rcShutter').hidden = review || !RC.live;
+  $('rcRetake').hidden = $('rcKeep').hidden = !review;
+  var st = $('rcStatus');
+  if (RC.mode === 'retake') st.innerHTML = review ? 'Keep this as reference photo <b>' + RC.num + '</b>?' : 'Take the new photo <b>' + RC.num + '</b>';
+  else {
+    var next = R.refs.length + RC.queue.length + 1;   // photos already saved + ones still uploading
+    var line = review ? 'Keep this as photo <b>' + next + '</b>?' : (!RC.saved && !RC.queue.length && next === 1 ? 'Start at the front door and work your way around. ' : '') + 'Take photo <b>' + next + '</b>';
+    var parts = [];
+    if (RC.saved) parts.push(RC.saved + ' saved');
+    if (RC.queue.length) parts.push(RC.failed ? '⚠ ' + RC.queue.length + ' waiting for signal' : RC.queue.length + ' saving…');
+    st.innerHTML = line + (parts.length ? ' &nbsp;·&nbsp; ' + parts.join(' · ') : '');
+  }
+}
+function openRefCam(mode, ref, k) {
+  RC.mode = mode; RC.row = ref ? ref.row : null; RC.num = ref ? k + 1 : 0; RC.pending = null; RC.saved = 0; RC.failed = false;
+  $('rcTitle').textContent = R.unit + (mode === 'walk' ? ' · Walk-through' : ' · Retake photo ' + (k + 1));
+  $('rcDone').textContent = mode === 'walk' ? 'Done' : 'Cancel';
+  $('rcGhostWrap').hidden = true;               // no overlay: plain camera
+  $('rcGhost').removeAttribute('src');
+  show('s-refcam'); rcLayout();
+  startRcCamera().then(function (ok) { RC.live = ok; rcRender(); });
+  rcRender();
+}
+function rcPump() {                                   // uploads one at a time, so the order is exactly the order taken
+  if (RC.sending || !RC.queue.length) return;
+  RC.sending = true;
+  api('adminAddRef', { unit: R.unit, dataUrl: RC.queue[0] }).then(function (refs) {
+    RC.queue.shift(); RC.sending = false; RC.failed = false; RC.saved++;
+    renderRefs(refs); rcRender(); rcPump();
+  }, function () {
+    RC.sending = false; RC.failed = true; rcRender();
+    setTimeout(rcPump, 4000);                        // keep trying; nothing is lost
+  });
+}
+function rcKeep() {
+  var d = RC.pending; if (!d) return;
+  RC.pending = null;
+  if (RC.mode === 'walk') { RC.queue.push(d); rcPump(); rcRender(); return; }
+  busy('Saving…');
+  api('adminReplaceRef', { unit: R.unit, row: RC.row, dataUrl: d }).then(function (refs) {
+    busy(false); renderRefs(refs); toast('Photo ' + RC.num + ' updated'); show('s-refs');
+  }).catch(function (e) { busy(false); RC.pending = d; rcRender(); toast('Not saved: ' + e.message); });
+}
+function rcClose() {
+  if (RC.mode === 'walk' && RC.queue.length) {
+    busy('Saving the last photos…');
+    (function waitEmpty(n) {
+      if (!RC.queue.length) { busy(false); toast(RC.saved + ' photo' + (RC.saved === 1 ? '' : 's') + ' added'); show('s-refs'); return; }
+      if (n > 90) { busy(false); toast('Some photos are still waiting for signal. Stay on this screen.'); return; }
+      setTimeout(function () { waitEmpty(n + 1); }, 1000);
+    })(0);
+    return;
+  }
+  if (RC.mode === 'walk' && RC.saved) toast(RC.saved + ' photo' + (RC.saved === 1 ? '' : 's') + ' added');
+  show('s-refs');
+}
+function initRefCam() {
+  $('rcOpenCam').innerHTML = ICON.camera + '<span>Take photo</span>';
+  $('walkRefs').onclick = function () { openRefCam('walk'); };
+  $('rcShutter').onclick = function () { var d = rcCapture(); if (!d) { toast('Camera not ready yet. Try again.'); return; } RC.pending = d; rcRender(); };
+  $('rcOpenCam').onclick = function () { $('rcFile').click(); };
+  $('rcFile').onchange = function () {
+    var f = this.files && this.files[0]; this.value = ''; if (!f) return;
+    fileToDataUrl(f).then(function (d) { RC.pending = d; rcRender(); }).catch(function (e) { toast(e.message); });
+  };
+  $('rcRetake').onclick = function () { RC.pending = null; rcRender(); if (!RC.live) $('rcFile').click(); };
+  $('rcKeep').onclick = rcKeep;
+  $('rcDone').onclick = rcClose;
+  $('rcGhostChk').onchange = rcRender;
+  window.addEventListener('resize', function () { if ($('s-refcam').classList.contains('on')) rcLayout(); });
+  window.addEventListener('beforeunload', function (e) { if (RC.queue.length) { e.preventDefault(); e.returnValue = ''; } });
+}
+
 function initRefs() {
+  initRefCam();
   $('refsBack').onclick = function () { show('s-admin'); loadAdmin(); };
   $('addRefs').onclick = function () { $('fileRefs').click(); };
   $('fileRefs').onchange = function () {
