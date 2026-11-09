@@ -57,7 +57,7 @@ label{display:block;font-weight:600;margin:22px 0 6px}
 .dot.up{background:var(--warn)}.dot.done{background:var(--ok)}.dot.err{background:var(--danger)}
 .dot.cur{outline:2px solid #fff;outline-offset:1px}
 .complete{height:38px;padding:0 14px;border:0;border-radius:10px;background:var(--ok);color:#fff;font-weight:700;font-size:15px}
-.complete:disabled{background:#2a2a2f;color:#77777d}
+.complete:disabled,.complete.notyet{background:#2a2a2f;color:#77777d}
 .menuBtn{height:38px;padding:0 14px;border:0;border-radius:10px;background:#2a2a2f;color:#fff;font-weight:600;font-size:15px}
 .delBtn{height:38px;padding:0 12px;border:1px solid #e0675d;border-radius:10px;background:transparent;color:#ff8a80;font-weight:600;font-size:14px}
 
@@ -192,7 +192,7 @@ label{display:block;font-weight:600;margin:22px 0 6px}
     <button class="nav" id="prevBtn" aria-label="Previous"></button>
     <div class="mid"><div class="counter" id="counter"></div><div class="dots" id="dots"></div></div>
     <button class="nav" id="nextBtn" aria-label="Next"></button>
-    <button class="complete" id="completeBtn" disabled>Complete</button>
+    <button class="complete" id="completeBtn">Complete</button>
   </div>
   <div class="half zoomable" id="refPane">
     <div class="loading" id="refLoading">Loading…</div>
@@ -609,6 +609,8 @@ function captureFrame() {
 }
 
 function go(i) {
+  // A photo that was taken but not yet confirmed is kept, never silently thrown away.
+  if (S.mode === 'review' && S.pending) { accept(true); }
   S.idx = Math.max(0, Math.min(S.refs.length - 1, i));
   S.pending = null;
   S.mode = S.photos[S.idx] ? 'saved' : 'live';
@@ -643,7 +645,7 @@ function renderShoot() {
   $('prevBtn').disabled = i === 0;
   $('nextBtn').disabled = i === n - 1;
   var doneCount = S.photos.filter(function (x) { return x && x.status === 'done'; }).length;
-  $('completeBtn').disabled = !allDone();
+  $('completeBtn').classList.toggle('notyet', !allDone());
   $('completeBtn').textContent = allDone() ? 'Complete' : 'Complete ' + doneCount + '/' + n;
 
   // dots
@@ -679,11 +681,13 @@ function renderShoot() {
   }
 }
 
-function accept() {
+function accept(stay) {
   var i = S.idx, prev = S.photos[i];
+  if (!S.pending) return;
   var p = { dataUrl: S.pending, status: 'uploading', fileId: null, tries: 0, oldId: prev && prev.fileId ? prev.fileId : (prev && prev.oldId) || null };
   S.photos[i] = p; S.pending = null; S.mode = 'saved';
   upload(i, p);
+  if (stay) return;
   var n = S.photos.length, next = -1;
   for (var k = 1; k <= n; k++) { var j = (i + k) % n; if (!S.photos[j]) { next = j; break; } }
   if (next >= 0) go(next);
@@ -714,7 +718,16 @@ function saveProgress() {
 }
 
 function complete() {
-  if (!allDone()) return;
+  if (!allDone()) {
+    // Never a dead button: say what is missing and go to it.
+    var saving = S.photos.filter(function (p) { return p && p.status === 'uploading'; }).length;
+    var missing = [], failed = [];
+    S.photos.forEach(function (p, k) { if (!p) missing.push(k); else if (p.status === 'error') failed.push(k); });
+    if (failed.length) { go(failed[0]); toast('Photo ' + (failed[0] + 1) + ' did not save. Tap "Not saved" on it to try again.'); }
+    else if (missing.length) { go(missing[0]); toast(missing.length + ' photo' + (missing.length === 1 ? '' : 's') + ' still needed. This is photo ' + (missing[0] + 1) + '.'); }
+    else if (saving) toast('Still saving ' + saving + ' photo' + (saving === 1 ? '' : 's') + '. Wait a moment, then tap Complete again.');
+    return;
+  }
   busy('Saving to the sheet…');
   api('complete', { unit: S.unit, name: S.name, sessionId: S.sid, ids: S.photos.map(function (p) { return p.fileId; }) })
     .then(function () {
@@ -738,13 +751,17 @@ function initShoot() {
   $('shutter').onclick = function () {
     var d = captureFrame();
     if (!d) { toast('Camera not ready yet — try again.'); return; }
-    S.pending = d; S.mode = 'review'; renderShoot();
+    // One tap saves the photo and moves on. To redo one, go back to it and tap Retake.
+    var i = S.idx;
+    toast('Photo ' + (i + 1) + ' saved');
+    S.pending = d; accept();
   };
   $('openCam').onclick = function () { $('fileCam').click(); };
   $('fileCam').onchange = function () {
     var f = this.files && this.files[0]; this.value = '';
     if (!f) return;
-    fileToDataUrl(f).then(function (d) { S.pending = d; S.mode = 'review'; renderShoot(); }).catch(function (e) { toast(e.message); });
+    var i = S.idx;
+    fileToDataUrl(f).then(function (d) { if (S.idx !== i) return; toast('Photo ' + (i + 1) + ' saved'); S.pending = d; accept(); }).catch(function (e) { toast(e.message); });
   };
   $('acceptBtn').onclick = accept;
   $('retakeBtn').onclick = function () { S.pending = null; S.mode = 'live'; renderShoot(); };
