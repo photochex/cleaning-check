@@ -78,6 +78,11 @@ label{display:block;font-weight:600;margin:22px 0 6px}
 .tl + .label{left:44px}
 .fallback{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:20px;z-index:4;background:#111}
 .fallback p{margin:0;color:#aaa;font-size:13px;max-width:280px}
+.fallback{overflow-y:auto;justify-content:flex-start}
+.fallback>.bigBtn{margin-top:auto;flex:none}
+.camHelp{margin-bottom:auto;background:#3a2f0b;border:1px solid #d39b00;color:#ffe9a8;border-radius:12px;padding:8px 10px;font-size:12.5px;line-height:1.35;max-width:320px;text-align:left;display:flex;flex-direction:column;gap:6px}
+.camHelp[hidden]{display:none}
+.camHelp .ghost{color:#fff;border-color:#d39b00;align-self:flex-start}
 .bigBtn{padding:14px 22px;border-radius:30px;border:0;background:#fff;color:#111;font-weight:700;font-size:17px;display:flex;gap:8px;align-items:center}
 .bigBtn svg{width:20px;height:20px}
 .empty{color:#888;font-size:14px;padding:20px;text-align:center}
@@ -177,7 +182,13 @@ label{display:block;font-weight:600;margin:22px 0 6px}
       <img id="shotImg" alt="" hidden>
       <div class="fallback" id="camFallback" hidden>
         <button class="bigBtn" id="openCam"></button>
-        <p>Line your shot up with the reference photo below, then take it.</p>
+        <p id="camTip">Line your shot up with the reference photo below, then take it.</p>
+        <div class="camHelp" id="camHelp" hidden>
+          <b>Live camera is off on this phone.</b>
+          <span id="camHelpText"></span>
+          <span style="color:#d8c48a">For now, Take photo opens the full-screen camera.</span>
+          <button class="ghost" id="camRetry">Try live camera again</button>
+        </div>
       </div>
     </div>
     <button class="tiny tl" id="exitShoot" aria-label="Exit"></button>
@@ -570,15 +581,44 @@ function startUnit(unit) {
 
 function startCamera() {
   if (S.stream) return Promise.resolve(true);
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.resolve(false);
-  return navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false })
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { S.camErr = 'unsupported'; return Promise.resolve(false); }
+  var md = navigator.mediaDevices;
+  return md.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false })
+    .catch(function (e) {
+      // Some phones reject the size settings; try once more with the plainest request.
+      if (e && /Overconstrained|NotFound|NotReadable|Abort/.test(e.name || '')) return md.getUserMedia({ video: true, audio: false });
+      throw e;
+    })
     .then(function (stream) {
-      S.stream = stream;
+      S.stream = stream; S.camErr = '';
       var v = $('video'); v.srcObject = stream;
       var p = v.play(); if (p && p.catch) p.catch(function () {});
-      stream.getVideoTracks()[0].addEventListener('ended', function () { S.stream = null; S.liveCam = false; renderShoot(); });
+      stream.getVideoTracks()[0].addEventListener('ended', function () { S.stream = null; S.liveCam = false; S.camErr = 'ended'; renderShoot(); });
       return true;
-    }).catch(function () { return false; });
+    }).catch(function (e) { S.camErr = (e && e.name) || 'other'; return false; });
+}
+
+// Plain-language reason + fix, shown when the live camera can't open.
+function camHelpText() {
+  var ua = navigator.userAgent || '', ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  var standalone = window.navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+  var inApp = /FBAN|FBAV|Instagram|WhatsApp|Line\/|Snapchat|LinkedInApp|Twitter|MicroMessenger|GSA\/|; wv\)/.test(ua) || (ios && !standalone && !/Safari\//.test(ua));
+  var browser = ios ? 'Safari' : 'Chrome';
+  var err = S.camErr || 'other';
+  var B = browser;
+  if (inApp || err === 'unsupported')
+    return 'This link is open inside another app. Open it in ' + B + ': tap \u22ef or the share icon \u2192 \u201cOpen in ' + B + '\u201d. Allow the camera when asked.';
+  if (err === 'NotAllowedError' || err === 'SecurityError')
+    return ios
+      ? 'Camera is blocked. In Safari, tap \u201caA\u201d (left of the address bar) \u2192 Website Settings \u2192 Camera \u2192 Allow. Then reload the page.'
+      : 'Camera is blocked. Tap the icon left of the web address \u2192 Permissions \u2192 Camera \u2192 Allow, then tap below.';
+  if (err === 'NotReadableError' || err === 'AbortError')
+    return 'Another app is using the camera. Close it, then tap below.';
+  if (err === 'NotFoundError' || err === 'OverconstrainedError')
+    return 'This phone didn\u2019t give the page a camera.';
+  if (err === 'ended')
+    return 'The camera stopped (phone locked or app switched). Tap below to turn it back on.';
+  return 'Make sure this link is open in ' + B + ' and the camera is allowed, then tap below.';
 }
 function stopCamera() {
   if (S.stream) { S.stream.getTracks().forEach(function (t) { t.stop(); }); S.stream = null; }
@@ -662,6 +702,9 @@ function renderShoot() {
   var shot = $('shotImg');
   $('video').hidden = !(live && S.liveCam);
   $('camFallback').hidden = !(live && !S.liveCam);
+  $('camHelp').hidden = !(live && !S.liveCam);
+  $('camTip').hidden = live && !S.liveCam;
+  if (live && !S.liveCam) $('camHelpText').textContent = camHelpText();
   $('shutter').hidden = !(live && S.liveCam);
   $('reviewBtns').hidden = live;
   $('acceptBtn').hidden = !review;
@@ -757,6 +800,12 @@ function initShoot() {
     S.pending = d; accept();
   };
   $('openCam').onclick = function () { $('fileCam').click(); };
+  $('camRetry').onclick = function () {
+    startCamera().then(function (ok) {
+      S.liveCam = ok; renderShoot();
+      if (!ok) toast('Still blocked. Follow the steps in the yellow box, then reload this page.');
+    });
+  };
   $('fileCam').onchange = function () {
     var f = this.files && this.files[0]; this.value = '';
     if (!f) return;
